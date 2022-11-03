@@ -1,6 +1,5 @@
 package com.jornah.jpa;
 
-import com.jornah.jpa.dao.PostRepo;
 import com.jornah.jpa.dao.UserRepo;
 import com.jornah.jpa.model.User;
 import com.jornah.jpa.service.UserService;
@@ -20,11 +19,12 @@ public class SpringjpaDemoApplication {
 
     private static void test1(ApplicationContext  context) {
         UserService userService = context.getBean(UserService.class);
-        User userInfo = userService.getUserInfo(1L);
-        userService.test();
-
-        UserRepo userRepo = context.getBean(UserRepo.class);
-//        List<User> users = userRepo.findAllBy();
+//        User userInfo = userService.getUserInfo(1L);
+//        userService.test();
+//
+//        UserRepo userRepo = context.getBean(UserRepo.class);
+////        List<User> users = userRepo.findAllBy();
+        userService.queryBySpecificationBuilder();
 
 
     }

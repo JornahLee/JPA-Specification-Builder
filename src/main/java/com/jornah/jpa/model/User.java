@@ -38,6 +38,4 @@ public class User {
     @Column(nullable = true)
     LocalDateTime updated;
 
-    @OneToMany(fetch = FetchType.LAZY,mappedBy = "user")
-    List<Post> postList;
 }

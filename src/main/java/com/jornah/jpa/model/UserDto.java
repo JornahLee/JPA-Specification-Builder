@@ -1,6 +1,7 @@
 package com.jornah.jpa.model;
 
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
@@ -9,10 +10,11 @@ import java.time.LocalDateTime;
  * @date 2022/10/11 22:14
  */
 @Data
+@NoArgsConstructor
 public class UserDto {
-    String username;
-    Long count;
-    LocalDateTime time;
+    private String username;
+    private Long count;
+    private LocalDateTime time;
 
     public UserDto(String username, Long count,LocalDateTime time) {
         this.username = username;
