@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 public class UserDto {
+    Long id;
     private String username;
     private Long count;
     private LocalDateTime time;

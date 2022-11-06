@@ -1,8 +1,6 @@
 package com.jornah.jpa.util;
 
-import org.apache.ibatis.reflection.ReflectionException;
-import org.springframework.cglib.core.ReflectUtils;
-import org.springframework.util.ReflectionUtils;
+import org.hibernate.query.criteria.internal.path.PluralAttributePath;
 
 import javax.persistence.EntityManager;
 import javax.persistence.Tuple;
@@ -12,14 +10,9 @@ import javax.persistence.criteria.Path;
 import javax.persistence.criteria.Predicate;
 import javax.persistence.criteria.Root;
 import javax.persistence.criteria.Selection;
-import java.lang.invoke.SerializedLambda;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -27,115 +20,153 @@ import java.util.stream.Collectors;
  * @author licong
  * @date 2022/11/2 21:55
  */
-public class JpaQueryRunner<T, Q> {
-    List<SqlCondition> conditionList = new ArrayList<>();
+public class JpaQueryRunner<T, R> implements Compare<JpaQueryRunner<T, R>, SFunction<T, ?>> {
+    private final List<SqlCondition> conditionList = new ArrayList<>();
+    private final EntityManager em;
+    private final Class<R> returnClass;
+    private final Class<T> entityClass;
+    private final Set<String> selectList = new HashSet<>();
 
-    EntityManager em;
-    Class<Q> returnClass;
-    Class<T> entityClass;
-    Set<String> selectList = new HashSet<>();
-
-    public JpaQueryRunner(EntityManager em, Class<T> entityClass, Class<Q> returnClass) {
+    public JpaQueryRunner(EntityManager em, Class<T> entityClass, Class<R> returnClass) {
         this.em = em;
         this.returnClass = returnClass;
         this.entityClass = entityClass;
     }
 
-    public JpaQueryRunner select(SFunction<T, ?>... myFun) {
-        for (SFunction<T, ?> fun : myFun) {
-            String methodName = getLambdaMethodName(fun);
-            String fieldName = methodToProperty(methodName);
-            this.selectList.add(fieldName);
-        }
-        return this;
+
+    public List<R> executeQuery() {
+        CriteriaQuery<Tuple> criteriaQuery = createCriteriaQuery();
+
+        List<Tuple> tupleResultList = em.createQuery(criteriaQuery)
+                .getResultList();
+
+        DefaultResultTransformer<R> resultTransformer =
+                new DefaultResultTransformer<>(tupleResultList, returnClass, selectList);
+        return resultTransformer.transform();
     }
 
-    public List<Q> execute() {
-//        Projections
-//        Class<Object[]> aClass = Object[].class;
-        List<Tuple> tupleList = query();
-        return tupleCastObject(tupleList);
-    }
-
-    private List<Q> tupleCastObject(List<Tuple> tupleList) {
-        List<Q> retList = new ArrayList<>();
-        Field[] fields = returnClass.getDeclaredFields();
-        tupleList.forEach(tuple -> {
-            Q q = (Q) ReflectUtils.newInstance(returnClass);
-            Arrays.stream(fields)
-                    .filter(f -> selectList.contains(f.getName()))
-                    .forEach(field -> {
-                        ReflectionUtils.makeAccessible(field);
-                        ReflectionUtils.setField(field,q, tuple.get(field.getName()));
-                    });
-            retList.add(q);
-        });
-        return retList;
-    }
-
-    private List<Tuple> query() {
+    private CriteriaQuery<Tuple> createCriteriaQuery() {
         CriteriaBuilder criteriaBuilder = em.getCriteriaBuilder();
         CriteriaQuery<Tuple> query = criteriaBuilder.createTupleQuery();
         Root<T> root = query.from(this.entityClass);
 
         List<Predicate> predicateList = new ArrayList<>();
         conditionList.forEach(condition -> {
-            Path<Object> path = root.get(condition.getColumnName());
-            SqlKeyword keyword = condition.getKeyword();
-            Predicate predicate = null;
-            switch (keyword) {
-                case EQ:
-                    predicate = criteriaBuilder.in(path).value(1).value(2).value(3);
-                    break;
-            }
+            Predicate predicate = generatePredicateBy(criteriaBuilder, root, condition);
             predicateList.add(predicate);
         });
         List<Selection<?>> selectionList = selectList.stream()
                 .map(sel -> root.get(sel).alias(sel))
                 .collect(Collectors.toList());
 
-        CriteriaQuery<Tuple> criteriaQuery = query.multiselect(selectionList)
+        return query.multiselect(selectionList)
                 .where(predicateList.toArray(new Predicate[]{}));
-        return em.createQuery(criteriaQuery).getResultList();
     }
 
 
-    public JpaQueryRunner<T, Q> eq(boolean condition, SFunction<T, ?> myFun, Object val) {
+    private Predicate generatePredicateBy(CriteriaBuilder criteriaBuilder, Root<T> root, SqlCondition condition) {
+        Path<String> stringPath = root.get(condition.getColumnName());
+        Path<Number> numberPath = root.get(condition.getColumnName());
+        Path<Object> objectPath = root.get(condition.getColumnName());
+        CompareType keyword = condition.getKeyword();
+        Object[] valueArray = condition.getValueArray();
+        Object columnValue = valueArray[0];
+        Predicate predicate = null;
+        switch (keyword) {
+            case EQ:
+                predicate = criteriaBuilder.equal(objectPath, columnValue);
+                break;
+            case IN:
+                predicate = criteriaBuilder.in(objectPath).in(valueArray);
+                break;
+            case GT:
+                predicate = criteriaBuilder.gt(numberPath, (Number) columnValue);
+                break;
+            case GE:
+                predicate = criteriaBuilder.ge(numberPath, (Number) columnValue);
+                break;
+            case LE:
+                predicate = criteriaBuilder.le(numberPath, (Number) columnValue);
+                break;
+            case NE:
+                predicate = criteriaBuilder.notEqual(numberPath, columnValue);
+                break;
+            case LT:
+                predicate = criteriaBuilder.lt(numberPath, (Number) columnValue);
+                break;
+            case LIKE:
+                predicate = criteriaBuilder.like(stringPath, (String) columnValue);
+                break;
+            case BETWEEN:
+                predicate = criteriaBuilder.between(stringPath, (String)valueArray[0],(String) valueArray[1]);
+                break;
+        }
+        return predicate;
 
-        String methodName = getLambdaMethodName(myFun);
-        String fieldName = methodToProperty(methodName);
-        conditionList.add(SqlCondition.of(SqlKeyword.EQ, fieldName, val));
+    }
+
+
+    @SafeVarargs
+    public final JpaQueryRunner<T, R> select(SFunction<T, ?>... columns) {
+        for (SFunction<T, ?> column : columns) {
+            String methodName = ColumnNameResolver.getLambdaMethodName(column);
+            String fieldName = ColumnNameResolver.methodToProperty(methodName);
+            this.selectList.add(fieldName);
+        }
         return this;
     }
 
-    public JpaQueryRunner<T, Q> eq(SFunction<T, ?> myFun, Object val) {
-        return eq(true, myFun, val);
-    }
-
-    private String getLambdaMethodName(SFunction<T, ?> myFun) {
-        try {
-            Method writeReplace = myFun.getClass().getDeclaredMethod("writeReplace");
-            writeReplace.setAccessible(true);
-            SerializedLambda serializedLambda = (SerializedLambda) writeReplace.invoke(myFun);
-            return serializedLambda.getImplMethodName();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+    @Override
+    public JpaQueryRunner<T, R> eq(boolean condition, SFunction<T, ?> column, Object val) {
+        addQueryCondition(column, val, CompareType.EQ);
+        return this;
     }
 
 
-    private static String methodToProperty(String name) {
-        if (name.startsWith("is")) {
-            name = name.substring(2);
-        } else if (name.startsWith("get") || name.startsWith("set")) {
-            name = name.substring(3);
-        } else {
-            throw new ReflectionException("Error parsing property name '" + name + "'.  Didn't start with 'is', 'get' or 'set'.");
-        }
-        if (name.length() == 1 || (name.length() > 1 && !Character.isUpperCase(name.charAt(1)))) {
-            name = name.substring(0, 1).toLowerCase(Locale.ENGLISH) + name.substring(1);
-        }
-        return name;
+    @Override
+    public JpaQueryRunner<T, R> ne(boolean condition, SFunction<T, ?> column, Object val) {
+        return null;
+    }
+
+    @Override
+    public JpaQueryRunner<T, R> gt(boolean condition, SFunction<T, ?> column, Object val) {
+        return null;
+    }
+
+    @Override
+    public JpaQueryRunner<T, R> ge(boolean condition, SFunction<T, ?> column, Object val) {
+        return null;
+    }
+
+    @Override
+    public JpaQueryRunner<T, R> lt(boolean condition, SFunction<T, ?> column, Object val) {
+        return null;
+    }
+
+    @Override
+    public JpaQueryRunner<T, R> le(boolean condition, SFunction<T, ?> column, Object val) {
+        return null;
+    }
+
+    @Override
+    public JpaQueryRunner<T, R> between(boolean condition, SFunction<T, ?> column, Object val1, Object val2) {
+        return null;
+    }
+
+    @Override
+    public JpaQueryRunner<T, R> like(boolean condition, SFunction<T, ?> column, Object val) {
+        return null;
+    }
+
+    @Override
+    public JpaQueryRunner<T, R> in(boolean condition, SFunction<T, ?> column, Object val) {
+        return null;
+    }
+
+    private void addQueryCondition(SFunction<T, ?> column, Object val, CompareType compareType) {
+        String methodName = ColumnNameResolver.getLambdaMethodName(column);
+        String fieldName = ColumnNameResolver.methodToProperty(methodName);
+        conditionList.add(SqlCondition.of(compareType, fieldName, val));
     }
 
 }

@@ -24,7 +24,7 @@ public class SpringjpaDemoApplication {
 //
 //        UserRepo userRepo = context.getBean(UserRepo.class);
 ////        List<User> users = userRepo.findAllBy();
-        userService.queryBySpecificationBuilder();
+        userService.queryBySpecificationBuilder(1L);
 
 
     }

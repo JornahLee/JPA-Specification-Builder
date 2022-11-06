@@ -4,7 +4,6 @@ import com.jornah.jpa.dao.UserRepo;
 import com.jornah.jpa.model.User;
 import com.jornah.jpa.model.UserDto;
 import com.jornah.jpa.util.JpaQueryRunner;
-import com.jornah.jpa.util.SFunction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -58,11 +58,12 @@ public class UserService {
         System.out.println(4);
     }
 
-    public void queryBySpecificationBuilder() {
+    public void queryBySpecificationBuilder(Long userid) {
         JpaQueryRunner<User, UserDto> jpaQueryRunner = new JpaQueryRunner<>(entityManager, User.class, UserDto.class);
-        jpaQueryRunner.select(User::getUsername);
-        List<UserDto> result = jpaQueryRunner.eq(User::getId, 1)
-                .execute();
+        List<UserDto> result = jpaQueryRunner
+                .select(User::getUsername, User::getId)
+                .eq(Objects.nonNull(userid),User::getId, userid)
+                .executeQuery();
         result.forEach(System.out::println);
 
     }
